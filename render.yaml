@@ -1,12 +1,10 @@
 # Render Blueprint: Dashboard → New → Blueprint → pick this repo.
-# Creates the Postgres database, the Django API and the React site.
+# Creates the Django API and the React site. You supply the Postgres DATABASE_URL.
 # Values marked `sync: false` are asked for in the dashboard when you create the Blueprint.
 
-databases:
-  - name: bustick-db
-    plan: free            # free Postgres expires after 30 days. Upgrade before then to keep your data.
-    databaseName: bustick
-    user: bustick
+# Database: Render allows only ONE free Postgres per account, so this blueprint does not create one.
+# Set DATABASE_URL yourself (see README section 6): your existing Render database, or any Postgres
+# provider such as Neon or Supabase.
 
 services:
   # ---------- Django API ----------
@@ -20,10 +18,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.8"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: bustick-db
-          property: connectionString
+      - key: DATABASE_URL           # postgresql://user:password@host:5432/dbname
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: DEBUG
