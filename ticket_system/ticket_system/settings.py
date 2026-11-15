@@ -53,11 +53,13 @@ if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # Public URLs (used for payment redirects and emails)
-FRONTEND_URL = env("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+FRONTEND_URL = env("FRONTEND_URL", "https://bustick-akpx.onrender.com" if RENDER_EXTERNAL_HOSTNAME else "http://localhost:3000").rstrip("/")
 BACKEND_URL = env("BACKEND_URL", f"https://{RENDER_EXTERNAL_HOSTNAME}" if RENDER_EXTERNAL_HOSTNAME else "http://127.0.0.1:8000").rstrip("/")
 
-CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", FRONTEND_URL)
-CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", FRONTEND_URL)
+# Always allow the configured frontend, plus local development
+CORS_ALLOWED_ORIGINS = sorted(set(env_list("CORS_ALLOWED_ORIGINS", FRONTEND_URL) + [FRONTEND_URL, "http://localhost:3000", "http://127.0.0.1:3000"]))
+CSRF_TRUSTED_ORIGINS = sorted(set(env_list("CSRF_TRUSTED_ORIGINS", FRONTEND_URL) + [FRONTEND_URL]
+                                  + ([f"https://{RENDER_EXTERNAL_HOSTNAME}"] if RENDER_EXTERNAL_HOSTNAME else [])))
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -185,6 +187,7 @@ BREVO_API_KEY = env("BREVO_API_KEY", "")
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", True)
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30

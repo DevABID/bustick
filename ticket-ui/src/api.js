@@ -1,7 +1,11 @@
 import axios from "axios";
 
-// Set REACT_APP_API_URL in .env (e.g. https://api.yourdomain.com). Falls back to local Django.
-export const API_URL = (process.env.REACT_APP_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+// Where the Django API lives.
+// 1. REACT_APP_API_URL (from .env, .env.production or the host's settings) wins.
+// 2. Otherwise: local Django when the site runs on this computer, the live API everywhere else.
+const PRODUCTION_API = "https://bustick-api.onrender.com";
+const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+export const API_URL = (process.env.REACT_APP_API_URL || (isLocal ? "http://127.0.0.1:8000" : PRODUCTION_API)).replace(/\/$/, "");
 
 // Long timeout: a free Render server can take up to a minute to wake from sleep.
 const api = axios.create({ baseURL: `${API_URL}/api`, timeout: 90000 });

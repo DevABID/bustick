@@ -220,3 +220,9 @@ class BrevoBackendTests(TestCase):
         self.assertEqual(body["htmlContent"], "<b>hi</b>")
         self.assertEqual(body["attachment"][0]["name"], "t.pdf")
         self.assertEqual(captured["headers"]["Api-key"], "test-key")
+
+
+class HealthTests(TestCase):
+    def test_health_and_root(self):
+        self.assertEqual(self.client.get("/api/health/").json()["database"], "ok")
+        self.assertEqual(self.client.get("/").json()["service"], "BusTick API")

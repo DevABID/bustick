@@ -30,6 +30,23 @@ class LookupThrottle(AnonRateThrottle):
     rate = "20/min"
 
 
+# ------------------------------------------------------------- health
+
+class Health(APIView):
+    """GET /api/health/ — used by Render to check the app and database are up."""
+
+    def get(self, request):
+        from django.db import connection
+        try:
+            with connection.cursor() as c:
+                c.execute("SELECT 1")
+            db = "ok"
+        except Exception:
+            db = "error"
+        return Response({"status": "ok" if db == "ok" else "degraded", "database": db,
+                         "payment_provider": settings.PAYMENT_PROVIDER}, status=200 if db == "ok" else 503)
+
+
 # ------------------------------------------------------------- search
 
 class RouteList(APIView):

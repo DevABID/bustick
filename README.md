@@ -118,8 +118,17 @@ When a date has no buses, the results page suggests the next dates that do.
 
 ## 6. Deploy on Render
 
-The repo includes `render.yaml`, which creates everything in one go: a Postgres database,
-the Django API and the React site.
+The repo includes `render.yaml`, which creates the Django API and the React site in one go.
+You provide the Postgres database URL yourself, because Render allows only **one free database per account**.
+
+### Get a database URL (pick one)
+- **A. Reuse your existing free Render database.** Open it in the Render dashboard and copy the **Internal Database URL**.
+  Use this only if no other Django project uses that database, because the tables would clash.
+  If the old project is finished, the cleanest option is to delete it and its database, then
+  create a new free Postgres called `bustick-db` and copy its Internal URL.
+  Deleting a database deletes its data for good.
+- **B. Use a separate free Postgres provider**, such as Neon or Supabase. Create a project, copy the connection string
+  (`postgresql://…`), and add `?sslmode=require` at the end if it isn't there already.
 
 ### Know the free-plan limits first
 - **The server sleeps** after 15 minutes without visitors. The next visit takes about a minute to load,
@@ -149,6 +158,7 @@ the Django API and the React site.
    they're taken, so check the dashboard.
    | Key | Value |
    |---|---|
+   | `DATABASE_URL` | the database URL from above |
    | `FRONTEND_URL`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | your React site URL, e.g. `https://bustick.onrender.com` |
    | `REACT_APP_API_URL` | your API URL, e.g. `https://bustick-api.onrender.com` |
    | `BREVO_API_KEY` | from step 2 |
