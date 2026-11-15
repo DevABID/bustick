@@ -1,0 +1,56 @@
+{% extends "admin/index.html" %}
+{% load booking_stats humanize %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .bt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin:0 0 24px}
+  .bt-card{background:var(--darkened-bg);border:1px solid var(--hairline-color);border-radius:10px;padding:18px}
+  .bt-card small{display:block;color:var(--body-quiet-color);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.05em}
+  .bt-card b{display:block;font-size:26px;margin-top:6px;color:var(--body-fg)}
+  .bt-card.warn b{color:#dc2626}
+  .bt-row{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px}
+  .bt-bars{display:flex;align-items:flex-end;gap:10px;height:140px;margin-top:14px}
+  .bt-bar{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--body-quiet-color)}
+  .bt-bar span{display:block;width:100%;background:#16a34a;border-radius:6px 6px 0 0;min-height:2px}
+  .bt-list{list-style:none;margin:10px 0 0;padding:0}
+  .bt-list li{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--hairline-color)}
+  @media (max-width:900px){.bt-row{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+
+{% block content %}
+{% booking_stats as s %}
+<div class="bt-grid">
+  <div class="bt-card"><small>Revenue today</small><b>৳{{ s.revenue_today|intcomma }}</b></div>
+  <div class="bt-card"><small>Seats sold today</small><b>{{ s.seats_today }}</b></div>
+  <div class="bt-card"><small>Trips today</small><b>{{ s.trips_today }}</b></div>
+  <div class="bt-card"><small>Total revenue</small><b>৳{{ s.revenue_total|intcomma }}</b></div>
+  <div class="bt-card {% if s.needs_action %}warn{% endif %}"><small>Payments needing action</small><b>{{ s.needs_action }}</b></div>
+</div>
+<div class="bt-row">
+  <div class="bt-card">
+    <small>Revenue, last 7 days</small>
+    <div class="bt-bars">
+      {% for d in s.week %}
+      <div class="bt-bar" title="৳{{ d.total|intcomma }}"><span style="height:{{ d.pct }}%"></span>{{ d.day|date:"D" }}</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="bt-card">
+    <small>Top routes</small>
+    <ul class="bt-list">
+      {% for r in s.top_routes %}<li><span>{{ r.route__from_city }} → {{ r.route__to_city }}</span><b style="font-size:14px;margin:0">{{ r.n }}</b></li>
+      {% empty %}<li>No paid bookings yet</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+<div class="bt-card" style="margin-bottom:24px">
+  <small>Latest bookings</small>
+  <ul class="bt-list">
+    {% for p in s.recent %}
+    <li><a href="{% url 'admin:booking_payment_change' p.pk %}">{{ p.customer_name }} · {{ p.schedule.route }}</a><span>৳{{ p.amount|intcomma }} · {{ p.status }}</span></li>
+    {% empty %}<li>No bookings yet</li>{% endfor %}
+  </ul>
+</div>
+{{ block.super }}
+{% endblock %}
