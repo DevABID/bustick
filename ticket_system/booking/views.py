@@ -43,8 +43,17 @@ class Health(APIView):
             db = "ok"
         except Exception:
             db = "error"
-        return Response({"status": "ok" if db == "ok" else "degraded", "database": db,
-                         "payment_provider": settings.PAYMENT_PROVIDER}, status=200 if db == "ok" else 503)
+        configured = {
+            "sslcommerz": bool(settings.SSLCOMMERZ_STORE_ID and settings.SSLCOMMERZ_STORE_PASSWORD),
+            "stripe": bool(settings.STRIPE_SECRET_KEY),
+            "demo": True,
+        }.get(settings.PAYMENT_PROVIDER, False)
+        return Response({
+            "status": "ok" if db == "ok" else "degraded", "database": db,
+            "payment_provider": settings.PAYMENT_PROVIDER, "payment_configured": configured,
+            "sslcommerz_mode": "sandbox" if settings.SSLCOMMERZ_SANDBOX else "live",
+            "backend_url": settings.BACKEND_URL, "frontend_url": settings.FRONTEND_URL,
+        }, status=200 if db == "ok" else 503)
 
 
 # ------------------------------------------------------------- search
@@ -177,9 +186,14 @@ class StartCheckout(APIView):
             return Response({"error": "Your seat hold has expired. Please select your seats again."}, status=410)
         try:
             url = payments.start_checkout(payment)
+        except payments.GatewayConfigError as e:
+            log.error("Checkout misconfigured for %s: %s", tran_id, e)
+            return Response({"error": "Online payment isn't set up correctly yet. Please contact support.",
+                             "detail": str(e) if settings.DEBUG else None}, status=503)
         except payments.PaymentError as e:
             log.error("Checkout failed for %s: %s", tran_id, e)
-            return Response({"error": "Could not reach the payment gateway. Please try again."}, status=502)
+            return Response({"error": "The payment gateway didn't respond. Please try again in a moment.",
+                             "detail": str(e) if settings.DEBUG else None}, status=502)
         return Response({"redirect_url": url})
 
 

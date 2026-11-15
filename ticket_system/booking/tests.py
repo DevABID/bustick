@@ -226,3 +226,55 @@ class HealthTests(TestCase):
     def test_health_and_root(self):
         self.assertEqual(self.client.get("/api/health/").json()["database"], "ok")
         self.assertEqual(self.client.get("/").json()["service"], "BusTick API")
+
+
+@override_settings(SSLCOMMERZ_STORE_ID="", SSLCOMMERZ_STORE_PASSWORD="", PAYMENT_PROVIDER="sslcommerz")
+class CheckoutErrorTests(TestCase):
+    def setUp(self):
+        bus = Bus.objects.create(name="B")
+        route = Route.objects.create(from_city="A", to_city="B")
+        s = Schedule.objects.create(bus=bus, route=route, date=timezone.localdate() + timedelta(days=2),
+                                    departure_time=dtime(9), price=500)
+        self.p = Payment.objects.create(schedule=s, customer_name="X", customer_email="x@example.com",
+                                        phone="01712345678", amount=500, provider="sslcommerz")
+
+    def test_missing_keys_is_503_and_health_reports_it(self):
+        r = self.client.post(f"/api/payments/{self.p.tran_id}/checkout/")
+        self.assertEqual(r.status_code, 503)
+        self.assertFalse(self.client.get("/api/health/").json()["payment_configured"])
+
+    @override_settings(SSLCOMMERZ_STORE_ID="x", SSLCOMMERZ_STORE_PASSWORD="y")
+    def test_gateway_reason_is_logged(self):
+        with mock.patch.object(payments, "_http", return_value={"status": "FAILED", "failedreason": "Store Credential Error Or Store is De-active"}):
+            with self.assertLogs("booking", level="ERROR") as logs:
+                r = self.client.post(f"/api/payments/{self.p.tran_id}/checkout/")
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("Store Credential Error", "\n".join(logs.output))
+
+
+@override_settings(SSLCOMMERZ_STORE_ID="busti_test", SSLCOMMERZ_STORE_PASSWORD="pw", PAYMENT_PROVIDER="sslcommerz")
+class SslcommerzRequestFieldsTests(TestCase):
+    def test_all_mandatory_fields_sent(self):
+        bus = Bus.objects.create(name="Green Line")
+        route = Route.objects.create(from_city="Dhaka", to_city="Sylhet")
+        s = Schedule.objects.create(bus=bus, route=route, date=timezone.localdate() + timedelta(days=2),
+                                    departure_time=dtime(9), price=800)
+        p = Payment.objects.create(schedule=s, customer_name="Rahim", customer_email="r@example.com",
+                                   phone="01712345678", amount=800, provider="sslcommerz")
+        Booking.objects.create(schedule=s, payment=p, seat_number="A1", customer_name="Rahim",
+                               customer_email="r@example.com", phone="01712345678")
+        sent = {}
+
+        def fake_http(method, url, data=None, headers=None, timeout=30):
+            sent.update(data)
+            return {"status": "SUCCESS", "GatewayPageURL": "https://sandbox.sslcommerz.com/pay/x", "sessionkey": "k"}
+
+        with mock.patch.object(payments, "_http", fake_http):
+            url = payments.start_checkout(p)
+        self.assertTrue(url.startswith("https://sandbox.sslcommerz.com"))
+        for field in ["store_id", "store_passwd", "total_amount", "currency", "tran_id", "success_url", "fail_url",
+                      "cancel_url", "cus_name", "cus_email", "cus_add1", "cus_city", "cus_postcode", "cus_country",
+                      "cus_phone", "shipping_method", "product_name", "product_category", "product_profile"]:
+            self.assertTrue(str(sent.get(field, "")).strip(), f"{field} missing")
+        self.assertEqual(sent["total_amount"], "800.00")
+        self.assertEqual(sent["cus_postcode"], "1000")

@@ -31,17 +31,30 @@ class PaymentError(Exception):
 
 # ---------------------------------------------------------------- helpers
 
-def _http(method, url, data=None, headers=None, timeout=20):
+class GatewayConfigError(PaymentError):
+    """The site is missing settings for the gateway (a problem for the site owner, not the customer)."""
+
+
+def _http(method, url, data=None, headers=None, timeout=30):
     body = urllib.parse.urlencode(data).encode() if data is not None else None
-    req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+    # Some gateway firewalls reject Python's default "Python-urllib" user agent.
+    hdrs = {"User-Agent": "Mozilla/5.0 (compatible; BusTick/1.0)", "Accept": "application/json"}
+    if body is not None:
+        hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+    hdrs.update(headers or {})
+    req = urllib.request.Request(url, data=body, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
+            raw = resp.read().decode(errors="replace")
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="replace")[:500]
         raise PaymentError(f"Gateway HTTP {e.code}: {detail}") from e
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise PaymentError(f"Gateway unreachable: {e}") from e
+    try:
+        return json.loads(raw)
+    except ValueError as e:
+        raise PaymentError(f"Gateway returned non-JSON (possibly blocked by a firewall): {raw[:300]}") from e
 
 
 def frontend(path):
@@ -124,7 +137,7 @@ def _ssl_base():
 
 def sslcommerz_checkout(payment):
     if not (settings.SSLCOMMERZ_STORE_ID and settings.SSLCOMMERZ_STORE_PASSWORD):
-        raise PaymentError("SSLCommerz is not configured (SSLCOMMERZ_STORE_ID / SSLCOMMERZ_STORE_PASSWORD).")
+        raise GatewayConfigError("SSLCommerz is not configured: set SSLCOMMERZ_STORE_ID and SSLCOMMERZ_STORE_PASSWORD.")
     seats = ", ".join(payment.bookings.values_list("seat_number", flat=True))
     data = {
         "store_id": settings.SSLCOMMERZ_STORE_ID,
@@ -139,8 +152,11 @@ def sslcommerz_checkout(payment):
         "cus_name": payment.customer_name,
         "cus_email": payment.customer_email,
         "cus_phone": payment.phone,
-        "cus_add1": "N/A",
+        # SSLCommerz requires an address, city, postcode and country. Bus passengers don't give an address,
+        # so the departure city is used, with a default postcode (configurable).
+        "cus_add1": payment.schedule.route.from_city,
         "cus_city": payment.schedule.route.from_city,
+        "cus_postcode": settings.SSLCOMMERZ_DEFAULT_POSTCODE,
         "cus_country": "Bangladesh",
         "shipping_method": "NO",
         "num_of_item": payment.bookings.count(),
@@ -151,7 +167,10 @@ def sslcommerz_checkout(payment):
     }
     res = _http("POST", f"{_ssl_base()}/gwprocess/v4/api.php", data)
     if res.get("status") != "SUCCESS" or not res.get("GatewayPageURL"):
-        raise PaymentError(res.get("failedreason") or "SSLCommerz did not return a payment page.")
+        reason = res.get("failedreason") or "SSLCommerz did not return a payment page."
+        if "credential" in reason.lower() or "de-active" in reason.lower() or "inactive" in reason.lower():
+            raise GatewayConfigError(f"SSLCommerz rejected the store login: {reason}")
+        raise PaymentError(f"SSLCommerz: {reason}")
     payment.provider_ref = res.get("sessionkey", "")
     payment.save(update_fields=["provider_ref"])
     return res["GatewayPageURL"]
@@ -186,7 +205,7 @@ STRIPE_API = "https://api.stripe.com/v1"
 
 def _stripe_headers():
     if not settings.STRIPE_SECRET_KEY:
-        raise PaymentError("Stripe is not configured (STRIPE_SECRET_KEY).")
+        raise GatewayConfigError("Stripe is not configured: set STRIPE_SECRET_KEY.")
     return {"Authorization": f"Bearer {settings.STRIPE_SECRET_KEY}"}
 
 
