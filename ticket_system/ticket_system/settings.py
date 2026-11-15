@@ -47,10 +47,14 @@ if not SECRET_KEY:
         raise RuntimeError("SECRET_KEY is not set. Add it to your .env file.")
 
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
+# Render sets this automatically to e.g. bustick-api.onrender.com
+RENDER_EXTERNAL_HOSTNAME = env("RENDER_EXTERNAL_HOSTNAME")
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # Public URLs (used for payment redirects and emails)
 FRONTEND_URL = env("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-BACKEND_URL = env("BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+BACKEND_URL = env("BACKEND_URL", f"https://{RENDER_EXTERNAL_HOSTNAME}" if RENDER_EXTERNAL_HOSTNAME else "http://127.0.0.1:8000").rstrip("/")
 
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", FRONTEND_URL)
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", FRONTEND_URL)
@@ -70,6 +74,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -99,12 +104,17 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "ticket_system.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# Render (and most hosts) provide DATABASE_URL for Postgres. Without it, SQLite is used locally.
+if env("DATABASE_URL"):
+    import dj_database_url
+    DATABASES = {"default": dj_database_url.parse(env("DATABASE_URL"), conn_max_age=600, conn_health_checks=True)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -120,6 +130,10 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -151,8 +165,10 @@ SSLCOMMERZ_SANDBOX = env_bool("SSLCOMMERZ_SANDBOX", True)
 STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", "")
 
-if PAYMENT_PROVIDER == "demo" and not DEBUG:
-    raise RuntimeError("PAYMENT_PROVIDER=demo is only allowed with DEBUG=True.")
+# Set ALLOW_DEMO_PAYMENTS=True only for a public portfolio/demo site where no real money is involved.
+ALLOW_DEMO_PAYMENTS = env_bool("ALLOW_DEMO_PAYMENTS", False)
+if PAYMENT_PROVIDER == "demo" and not (DEBUG or ALLOW_DEMO_PAYMENTS):
+    raise RuntimeError("PAYMENT_PROVIDER=demo needs DEBUG=True or ALLOW_DEMO_PAYMENTS=True.")
 
 # ---- Email ----
 EMAIL_BACKEND = env("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
@@ -162,6 +178,8 @@ EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "no-reply@example.com")
+# For hosts that block SMTP (e.g. Render free tier): EMAIL_BACKEND=booking.email_backends.BrevoEmailBackend
+BREVO_API_KEY = env("BREVO_API_KEY", "")
 
 # ---- Production hardening ----
 if not DEBUG:

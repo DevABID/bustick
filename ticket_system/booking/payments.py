@@ -254,7 +254,7 @@ def start_checkout(payment):
     if payment.provider == "stripe":
         return stripe_checkout(payment)
     if payment.provider == "demo":
-        if not settings.DEBUG:
+        if not (settings.DEBUG or settings.ALLOW_DEMO_PAYMENTS):
             raise PaymentError("Demo payments are disabled in production.")
         mark_paid(payment.pk, provider_ref="DEMO")
         return frontend(f"/confirmation?tran_id={payment.tran_id}")

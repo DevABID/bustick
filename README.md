@@ -87,6 +87,8 @@ Check that Stripe supports your account country and currency before using it in 
 
 ## 4. Email (tickets and the support form)
 
+On Render's free plan use Brevo instead of Gmail SMTP (see section 6).
+
 Messages from the Help page contact form are saved in the admin (**Support messages**)
 and emailed to `SUPPORT_EMAIL` (default `arabid8427@gmail.com`). Hitting "Reply" in your
 inbox goes straight to the customer.
@@ -114,13 +116,64 @@ Searches only show trips that exist in **Admin → Schedules** for that date. If
 
 When a date has no buses, the results page suggests the next dates that do.
 
-## 6. Deploying
+## 6. Deploy on Render
 
-- Backend: `DEBUG=False`, a long random `SECRET_KEY`, your domain in `ALLOWED_HOSTS`,
-  `FRONTEND_URL`, `BACKEND_URL`, and `CORS_ALLOWED_ORIGINS`. Run with
-  `gunicorn ticket_system.wsgi`. Use PostgreSQL for real traffic.
-- Frontend: `REACT_APP_API_URL=https://your-api-domain.com npm run build`, then host `build/`
-  (Netlify, Vercel, Nginx) with all routes falling back to `index.html`.
+The repo includes `render.yaml`, which creates everything in one go: a Postgres database,
+the Django API and the React site.
+
+### Know the free-plan limits first
+- **The server sleeps** after 15 minutes without visitors. The next visit takes about a minute to load,
+  and the site shows a "Connecting to the server…" message while it waits. The paid Starter instance ($7/month) never sleeps.
+- **Free Postgres expires after 30 days**, then gets deleted after a 14-day grace period. Upgrade the database
+  (from about $6/month) before then if the data matters.
+- **Email via SMTP (Gmail) is blocked** on free services. The blueprint uses **Brevo**, which sends email over HTTPS.
+  On a paid instance you can switch back to Gmail SMTP.
+- Files on the server are wiped on every deploy, which is why it uses Postgres and not SQLite.
+
+### Steps
+1. **Push the project to GitHub** (from the folder that contains `render.yaml`):
+   ```bash
+   git init
+   git add .
+   git commit -m "BusTick"
+   git branch -M main
+   git remote add origin https://github.com/<your-username>/bustick.git
+   git push -u origin main
+   ```
+   On Windows, also run `git update-index --chmod=+x ticket_system/build.sh` before committing.
+2. **Set up email (free):** create a Brevo account at https://www.brevo.com, verify a sender
+   (Senders & IPs → add your Gmail address), then create an API key (SMTP & API → API keys).
+3. **Create the Blueprint:** Render dashboard → **New → Blueprint** → choose your repo.
+   Render will ask for the `sync: false` values. Your two sites will be at
+   `https://bustick.onrender.com` and `https://bustick-api.onrender.com`; the names may differ if
+   they're taken, so check the dashboard.
+   | Key | Value |
+   |---|---|
+   | `FRONTEND_URL`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | your React site URL, e.g. `https://bustick.onrender.com` |
+   | `REACT_APP_API_URL` | your API URL, e.g. `https://bustick-api.onrender.com` |
+   | `BREVO_API_KEY` | from step 2 |
+   | `DEFAULT_FROM_EMAIL` | `BusTick <the-sender-you-verified@gmail.com>` |
+   | `DJANGO_SUPERUSER_USERNAME` / `_EMAIL` / `_PASSWORD` | your admin login |
+   | `SSLCOMMERZ_STORE_ID` / `PASSWORD` | leave empty while using demo payments |
+4. Click **Apply** and wait for all three to show **Live**. The first build takes a few minutes.
+   If you guessed a URL wrong, fix it under the service's **Environment** tab and redeploy.
+   After changing `REACT_APP_API_URL`, the React site must be redeployed because the value is built in.
+5. **Admin login and data:** these are created automatically on deploy from the values you entered
+   for `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_EMAIL` and `DJANGO_SUPERUSER_PASSWORD`.
+   `SEED_DEMO=True` adds demo routes and trips. Set it to `False` once you add your real buses in the admin.
+   Admin: `https://bustick-api.onrender.com/admin/`
+6. Every `git push` redeploys automatically. Each deploy also runs `extend_schedules`, so trips keep going.
+
+### Going from demo to real payments
+Set `PAYMENT_PROVIDER=sslcommerz`, fill in the SSLCommerz keys, and delete `ALLOW_DEMO_PAYMENTS`.
+SSLCommerz can reach Render directly, so you don't need ngrok. Set the IPN URL in the SSLCommerz panel to
+`https://bustick-api.onrender.com/api/gateway/sslcommerz/ipn/`. For a real business, use paid instances
+so the site doesn't sleep in the middle of a customer's payment.
+
+### Other hosts
+Any host works: set the same environment variables, run `build.sh`, and start with
+`gunicorn ticket_system.wsgi`. The React `build/` folder can go on Netlify, Vercel or Nginx,
+with every route falling back to `index.html`.
 
 ## API overview
 

@@ -190,3 +190,33 @@ class SupportAndDiscoveryTests(TestCase):
         import io
         call_command("extend_schedules", days=10, stdout=io.StringIO())
         self.assertEqual(Schedule.objects.filter(date__gte=timezone.localdate()).count(), 10)
+
+
+@override_settings(EMAIL_BACKEND="booking.email_backends.BrevoEmailBackend", BREVO_API_KEY="test-key",
+                   DEFAULT_FROM_EMAIL="BusTick <tickets@example.com>")
+class BrevoBackendTests(TestCase):
+    def test_sends_html_attachment_and_reply_to(self):
+        from django.core.mail import EmailMultiAlternatives
+        captured = {}
+
+        class FakeResp:
+            status = 201
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def fake_urlopen(req, timeout=0):
+            captured["headers"] = dict(req.header_items())
+            captured["body"] = json.loads(req.data)
+            return FakeResp()
+
+        msg = EmailMultiAlternatives("Hi", "text", to=["a@example.com"], reply_to=["r@example.com"])
+        msg.attach_alternative("<b>hi</b>", "text/html")
+        msg.attach("t.pdf", b"%PDF-1", "application/pdf")
+        with mock.patch("booking.email_backends.urllib.request.urlopen", fake_urlopen):
+            self.assertEqual(msg.send(), 1)
+        body = captured["body"]
+        self.assertEqual(body["sender"], {"email": "tickets@example.com", "name": "BusTick"})
+        self.assertEqual(body["replyTo"], {"email": "r@example.com"})
+        self.assertEqual(body["htmlContent"], "<b>hi</b>")
+        self.assertEqual(body["attachment"][0]["name"], "t.pdf")
+        self.assertEqual(captured["headers"]["Api-key"], "test-key")
